@@ -1,0 +1,218 @@
+<html>
+<head>
+<style>
+
+td{
+	padding: 2px 10px 0px 0px;
+}
+
+#big_message{
+	position: absolute; 
+	left: calc(50%); 
+	bottom: 10px; 
+	color: white;
+	text-shadow: 4px 4px 4px black;
+	font-size: 4em;
+	font-weight: bold;
+	font-family: "Consolas";
+	/* from https://stackoverflow.com/a/14249403/913630 */
+	text-shadow: 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black;
+}
+
+#msg_dbg{
+	position: absolute; 
+	left: 10px; 
+	bottom: 10px; 
+	color: white;
+	text-shadow: 4px 4px 4px black;
+	font-size: 1em;
+	font-weight: bold;
+	font-family: "Consolas";
+	/* from https://stackoverflow.com/a/14249403/913630 */
+	text-shadow: 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black, 0 0 4px black;
+}
+
+canvas{
+	image-rendering: pixelated;
+	width: 50%;
+	height: 100%;
+	grid-column: 1; 
+	grid-row: 1;
+}
+
+/* #code{
+	position: absolute;
+	left: 10px;
+	bottom: 10px;
+	width: calc(100% - 20px);
+	height: 400px;
+	font-size: 2em;
+	font-family: monospace;
+	tab-size : 4;
+} */
+
+#code{
+	position: absolute;
+	right: 0px;
+	bottom: 0px;
+	width: 50%;
+	height: 100%;
+	font-size: 2em;
+	font-family: monospace;
+	tab-size : 4;
+	padding: 10px;
+}
+
+</style>
+</head>
+<body style="padding: 0; margin: 0">
+
+
+
+<canvas id="canvas" width="800" height="600">
+</canvas>
+
+<textarea id="code" rows="5"></textarea>
+
+<script type="importmap">
+{
+	"imports": {
+		"potree":      "./src/Potree.js",
+		"dat.gui":     "./libs/dat.gui/dat.gui.module.js",
+		"stats":       "./libs/stats.js/stats.module.js",
+		"BinaryHeap":  "./libs/BinaryHeap/BinaryHeap.js"
+	}
+}
+</script>
+
+<script type="module">
+
+	import {Potree} from "potree";
+	import {initGUI, objects} from "./src/modules/gui_dat/gui.js";
+	import {ParametricFunction} from "./src/modules/parametric_functions/ParametricFunction.js";
+
+	let canvas = document.getElementById("canvas");
+	let potree = await Potree.init(canvas);
+	let {scene, controls} = potree;
+
+	initGUI(potree);
+	
+	controls.set({
+		position: [-1.1, -1.9, 0.5],
+		pivot: [0.0, 0.0, 0.0],
+	});
+
+	let shadercode = null;
+
+	{
+		let url = new URL(window.location.href);
+
+		if(url.searchParams.get("shadercode")){
+			try{
+				let encoded_b64 = url.searchParams.get("shadercode");
+
+				let decoded_b64 = window.atob(encoded_b64);
+				let decoded_u8 = new Uint8Array(Array.from(decoded_b64).map(c => c.charCodeAt(0)));
+
+				let decoder = new TextDecoder("utf-8");
+				shadercode = decoder.decode(decoded_u8);
+
+			}catch(e){
+
+			}
+		}
+
+		let primitive = url.searchParams.get("primitive") ?? "triangles";
+		let resolution = Number(url.searchParams.get("resolution") ?? "1000");
+		
+		guiContent["primitive"] = primitive;
+		guiContent["resolution"] = resolution;
+
+	}
+
+	
+	let parametric = new ParametricFunction("parametric", {shadercode});
+	scene.root.children.push(parametric);
+
+	function updateUrl(){
+
+		let components = [];
+
+		components.push(`primitive=${guiContent.primitive}`);
+		components.push(`resolution=${Math.floor(guiContent.resolution)}`);
+
+		{
+			let encoder = new TextEncoder();
+
+			let encoded_u8 = encoder.encode(parametric.shaderSource);
+			let str_encoded_u8 = String.fromCharCode(...encoded_u8);
+			let encoded_b64 = btoa(str_encoded_u8);
+			
+			let shadercode_component = encodeURIComponent(encoded_b64);
+
+			components.push(`shadercode=${shadercode_component}`);
+		}
+
+		let protocol = window.location.protocol;
+		let host = window.location.host;
+		let pathname = window.location.pathname;
+		let strComponents = components.join("&");
+
+		let url = `${protocol}//${host}${pathname}?${strComponents}`;
+
+		window.history.pushState('page2', 'Title', url);
+	}
+
+	objects.guiResolution.onChange(() => {
+		updateUrl();
+	});
+
+	objects.guiPrimitive.onChange(() => {
+		updateUrl();
+	});
+
+	{
+		let elCode = document.getElementById("code");
+
+		elCode.value = parametric.shaderSource;
+
+		// from https://stackoverflow.com/questions/6637341/use-tab-to-indent-in-textarea
+		elCode.addEventListener('keydown', function(e) {
+
+			if (e.key === "Tab") {
+				e.preventDefault();
+				var start = this.selectionStart;
+				var end = this.selectionEnd;
+
+				// set textarea value to: text before caret + tab + text after caret
+				this.value = this.value.substring(0, start) +
+				"\t" + this.value.substring(end);
+
+				// put caret at right position again
+				this.selectionStart =
+				this.selectionEnd = start + 1;
+			}
+
+		});
+
+		elCode.addEventListener('input', async function(e) {
+			let shaderSource = elCode.value;
+
+			parametric.setShaderSource(potree.renderer, shaderSource).then(result => {
+				if(result === "error"){
+					elCode.style.backgroundColor = "#fdd";
+				}else{
+					elCode.style.backgroundColor = "#dfd";
+
+					updateUrl();
+				}
+			});
+		});
+	}
+
+
+
+</script>
+
+</body>
+</html>
